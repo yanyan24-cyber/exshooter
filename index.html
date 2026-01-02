@@ -21,7 +21,7 @@
         .btn { background: transparent; border: 2px solid #00ffcc; color: #00ffcc; padding: 15px 30px; font-size: 18px; cursor: pointer; transition: 0.3s; margin: 10px; text-transform: uppercase; }
         .btn:hover { background: #00ffcc; color: black; box-shadow: 0 0 20px #00ffcc; }
         #file-input { display: none; }
-        #results { display: none; }
+        #results, #pause-text { display: none; }
     </style>
 </head>
 <body>
@@ -36,9 +36,10 @@
     <div id="overlay">
         <div id="menu">
             <h1>EX SHOOTER</h1>
+            <h1 id="pause-text" style="color: #00ffcc;">PAUSED</h1>
             <h2>By Iyan Aliman</h2>
             <button class="btn" id="start-btn">Start Training</button><br>
-            <label for="file-input" class="btn">Upload Custom Target</label>
+            <label for="file-input" class="btn" id="upload-label">Upload Custom Target</label>
             <input type="file" id="file-input" accept="image/*">
         </div>
         <div id="results">
@@ -62,8 +63,9 @@
         import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 
         let targetTex = new THREE.TextureLoader().load('./stupidtarget.png'); 
-        let score = 0, fired = 0, hits = 0, timeLeft = 60, gameActive = false;
+        let score = 0, fired = 0, hits = 0, timeLeft = 60, gameActive = false, timerStarted = false;
         const targets = [];
+        const particles = [];
         const gunGroup = new THREE.Group();
 
         const scene = new THREE.Scene();
@@ -79,24 +81,33 @@
         scene.add(pointLight);
         scene.add(new THREE.GridHelper(200, 50, 0xff00ff, 0x222222));
 
-        // --- CREATE GUN MODEL ---
+        // --- GUN MODEL ---
         function createGun() {
             const bodyMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
             const neonMat = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 2 });
-
             const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.3, 1), bodyMat);
             const grip = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.5, 0.2), bodyMat);
             grip.position.set(0, -0.3, 0.3);
             const sight = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.1, 0.4), neonMat);
             sight.position.set(0, 0.2, 0);
-
             gunGroup.add(barrel, grip, sight);
-            // Position gun in bottom right of view
             gunGroup.position.set(0.5, -0.4, -0.8); 
-            camera.add(gunGroup); // Attach to camera
+            camera.add(gunGroup);
             scene.add(camera);
         }
         createGun();
+
+        // --- EXPLOSION SYSTEM ---
+        function createExplosion(pos) {
+            for (let i = 0; i < 15; i++) {
+                const p = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), new THREE.MeshBasicMaterial({ color: 0x00ffff }));
+                p.position.copy(pos);
+                p.userData.velocity = new THREE.Vector3((Math.random()-0.5)*0.2, (Math.random()-0.5)*0.2, (Math.random()-0.5)*0.2);
+                p.userData.life = 1.0;
+                scene.add(p);
+                particles.push(p);
+            }
+        }
 
         // --- FILE UPLOADER ---
         document.getElementById('file-input').addEventListener('change', (e) => {
@@ -108,24 +119,43 @@
         });
 
         const controls = new PointerLockControls(camera, document.body);
-        document.getElementById('start-btn').addEventListener('click', () => {
-            controls.lock();
-            if (!gameActive) {
+        const startBtn = document.getElementById('start-btn');
+        const overlay = document.getElementById('overlay');
+        const pauseText = document.getElementById('pause-text');
+        const menuHeader = document.querySelector('#menu h1:not(#pause-text)');
+
+        startBtn.addEventListener('click', () => controls.lock());
+
+        controls.addEventListener('lock', () => {
+            overlay.style.display = 'none';
+            if (!timerStarted) {
                 gameActive = true;
-                document.getElementById('overlay').style.display = 'none';
+                timerStarted = true;
                 startTimer();
+            }
+        });
+
+        controls.addEventListener('unlock', () => {
+            if (timeLeft > 0) {
+                overlay.style.display = 'flex';
+                pauseText.style.display = 'block';
+                menuHeader.style.display = 'none';
+                startBtn.innerText = "Resume Training";
+                document.getElementById('upload-label').style.display = 'none';
             }
         });
 
         function startTimer() {
             const itv = setInterval(() => {
-                timeLeft--;
-                document.getElementById('timer').innerText = timeLeft;
+                if (controls.isLocked) {
+                    timeLeft--;
+                    document.getElementById('timer').innerText = timeLeft;
+                }
                 if (timeLeft <= 0) {
                     clearInterval(itv);
                     gameActive = false;
                     controls.unlock();
-                    document.getElementById('overlay').style.display = 'flex';
+                    overlay.style.display = 'flex';
                     document.getElementById('menu').style.display = 'none';
                     document.getElementById('results').style.display = 'block';
                     document.getElementById('final-stats').innerText = `Score: ${score} | Acc: ${Math.round((hits/fired)*100)}%`;
@@ -140,41 +170,55 @@
             targets.push(mesh);
         }
 
-        // --- SHOOTING & ANIMATION ---
-        const raycaster = new THREE.Raycaster();
         window.addEventListener('mousedown', () => {
             if (!controls.isLocked || !gameActive) return;
             fired++;
-            
-            // Gun Kickback Animation
-            gunGroup.position.z += 0.2; // Move back
-            setTimeout(() => gunGroup.position.z -= 0.2, 50); // Snap forward
+            gunGroup.position.z += 0.2;
+            setTimeout(() => gunGroup.position.z -= 0.2, 50);
 
+            const raycaster = new THREE.Raycaster();
             raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
             const intersects = raycaster.intersectObjects(targets);
             if (intersects.length > 0) {
-                scene.remove(intersects[0].object);
-                targets.splice(targets.indexOf(intersects[0].object), 1);
+                const obj = intersects[0].object;
+                createExplosion(obj.position);
+                scene.remove(obj);
+                targets.splice(targets.indexOf(obj), 1);
                 score += 100; hits++;
                 createTarget();
             }
             document.getElementById('score').innerText = score;
-            document.getElementById('accuracy').innerText = Math.round((hits/fired)*100);
+            document.getElementById('accuracy').innerText = Math.round((hits/fired)*100) || 100;
         });
 
         const keys = { w: false, a: false, s: false, d: false };
         document.addEventListener('keydown', (e) => keys[e.key.toLowerCase()] = true);
         document.addEventListener('keyup', (e) => keys[e.key.toLowerCase()] = false);
 
+        const clock = new THREE.Clock();
         function animate() {
             requestAnimationFrame(animate);
-            if (controls.isLocked) {
+            const delta = clock.getDelta();
+
+            if (controls.isLocked && gameActive) {
                 if (keys.w) controls.moveForward(0.15);
                 if (keys.s) controls.moveForward(-0.15);
                 if (keys.a) controls.moveRight(-0.15);
                 if (keys.d) controls.moveRight(0.15);
                 targets.forEach(t => t.lookAt(camera.position));
             }
+
+            // Update Particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.position.add(p.userData.velocity);
+                p.userData.life -= delta;
+                if (p.userData.life <= 0) {
+                    scene.remove(p);
+                    particles.splice(i, 1);
+                }
+            }
+
             renderer.render(scene, camera);
         }
 
