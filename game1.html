@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EX SHOOTER - Deluxe</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #050505; font-family: 'Courier New', Courier, monospace; }
+        #ui { position: absolute; top: 20px; left: 20px; color: #00ffcc; text-shadow: 0 0 8px #00ffcc; pointer-events: none; z-index: 10; }
+        .stat { font-size: 28px; font-weight: bold; margin-bottom: 5px; }
+        #crosshair { position: absolute; top: 50%; left: 50%; width: 14px; height: 14px; border: 2px solid #ff00ff; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; box-shadow: 0 0 10px #ff00ff; }
+        #crosshair::after { content: ''; position: absolute; top: 50%; left: 50%; width: 2px; height: 2px; background: #ff00ff; transform: translate(-50%, -50%); }
+        #instructions { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(0,0,0,0.9); color: white; cursor: pointer; z-index: 20; border: 4px double #00ffcc; box-sizing: border-box; }
+        h1 { font-size: 80px; margin: 0; color: #ff00ff; text-shadow: 0 0 20px #ff00ff; letter-spacing: 10px; }
+    </style>
+</head>
+<body>
+
+    <div id="ui">
+        <div class="stat">EX SHOOTER</div>
+        <div class="stat">SCORE: <span id="score">0</span></div>
+        <div class="stat">ACC: <span id="accuracy">100</span>%</div>
+    </div>
+    <div id="crosshair"></div>
+    <div id="instructions">
+        <h1>EX SHOOTER</h1>
+        <p>CLICK TO START</p>
+        <p style="color: #888; font-size: 14px;">[WASD] MOVE | [L-CLICK] SHOOT</p>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+
+        // --- 1. CONFIGURATION ---
+        // Change 'your-image.jpg' to your actual file name!
+        const TARGET_IMAGE_URL = 'stupidtarget.png'; 
+        const TARGET_COUNT = 10;
+
+        // --- 2. SCENE SETUP ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x020205);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const loader = new THREE.TextureLoader();
+        const targetTex = loader.load(TARGET_IMAGE_URL);
+
+        // Lights
+        scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+        const light = new THREE.PointLight(0x00ffff, 100, 100);
+        light.position.set(0, 10, 0);
+        scene.add(light);
+
+        // Environment
+        scene.add(new THREE.GridHelper(200, 50, 0xff00ff, 0x222222));
+
+        // --- 3. GAME OBJECTS ---
+        const targets = [];
+        const particles = [];
+
+        function createTarget() {
+            const geometry = new THREE.BoxGeometry(2, 2, 0.1);
+            const material = new THREE.MeshStandardMaterial({ map: targetTex });
+            const target = new THREE.Mesh(geometry, material);
+            target.position.set((Math.random()-0.5)*50, Math.random()*7+1.5, -Math.random()*30-10);
+            scene.add(target);
+            targets.push(target);
+        }
+
+        function createExplosion(pos) {
+            const particleCount = 20;
+            for (let i = 0; i < particleCount; i++) {
+                const pGeo = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+                const pMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
+                const p = new THREE.Mesh(pGeo, pMat);
+                p.position.copy(pos);
+                
+                // Random velocity
+                p.userData.velocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.2,
+                    (Math.random() - 0.5) * 0.2,
+                    (Math.random() - 0.5) * 0.2
+                );
+                p.userData.life = 1.0; // Seconds to live
+                
+                scene.add(p);
+                particles.push(p);
+            }
+            playHitSound();
+        }
+
+        // --- 4. AUDIO (Synthetic) ---
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playHitSound() {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.1);
+        }
+
+        // --- 5. CONTROLS & SHOOTING ---
+        const controls = new PointerLockControls(camera, document.body);
+        document.getElementById('instructions').addEventListener('click', () => {
+            controls.lock();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+        });
+        controls.addEventListener('lock', () => document.getElementById('instructions').style.display = 'none');
+        controls.addEventListener('unlock', () => document.getElementById('instructions').style.display = 'flex');
+
+        let score = 0, fired = 0, hits = 0;
+        const raycaster = new THREE.Raycaster();
+
+        window.addEventListener('mousedown', () => {
+            if (!controls.isLocked) return;
+            fired++;
+            raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+            const intersects = raycaster.intersectObjects(targets);
+            if (intersects.length > 0) {
+                const obj = intersects[0].object;
+                createExplosion(obj.position);
+                scene.remove(obj);
+                targets.splice(targets.indexOf(obj), 1);
+                score += 100; hits++;
+                createTarget();
+            }
+            document.getElementById('score').innerText = score;
+            document.getElementById('accuracy').innerText = Math.round((hits / fired) * 100);
+        });
+
+        // --- 6. ANIMATION LOOP ---
+        const keys = { w: false, a: false, s: false, d: false };
+        document.addEventListener('keydown', (e) => keys[e.key.toLowerCase()] = true);
+        document.addEventListener('keyup', (e) => keys[e.key.toLowerCase()] = false);
+
+        const clock = new THREE.Clock();
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+
+            // Movement Logic
+            if (controls.isLocked) {
+                if (keys.w) controls.moveForward(15 * delta);
+                if (keys.s) controls.moveForward(-15 * delta);
+                if (keys.a) controls.moveRight(-15 * delta);
+                if (keys.d) controls.moveRight(15 * delta);
+                targets.forEach(t => t.lookAt(camera.position));
+            }
+
+            // Particle Logic
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.position.add(p.userData.velocity);
+                p.userData.life -= delta;
+                p.rotation.x += 0.1;
+                if (p.userData.life <= 0) {
+                    scene.remove(p);
+                    particles.splice(i, 1);
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        for(let i=0; i<TARGET_COUNT; i++) createTarget();
+        camera.position.y = 1.6;
+        animate();
+    </script>
+</body>
+</html>
