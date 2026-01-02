@@ -21,7 +21,7 @@
         .btn { background: transparent; border: 2px solid #00ffcc; color: #00ffcc; padding: 15px 30px; font-size: 18px; cursor: pointer; transition: 0.3s; margin: 10px; text-transform: uppercase; }
         .btn:hover { background: #00ffcc; color: black; box-shadow: 0 0 20px #00ffcc; }
         #file-input { display: none; }
-        #results, #pause-text { display: none; }
+        #results, #pause-ui { display: none; }
     </style>
 </head>
 <body>
@@ -35,13 +35,22 @@
 
     <div id="overlay">
         <div id="menu">
-            <h1>EX SHOOTER</h1>
-            <h1 id="pause-text" style="color: #00ffcc;">PAUSED</h1>
-            <h2>By Iyan Aliman</h2>
+            <div id="main-header">
+                <h1>EX SHOOTER</h1>
+                <h2>By Iyan Aliman</h2>
+            </div>
+            <div id="pause-ui">
+                <h1 style="color: #00ffcc;">PAUSED</h1>
+                <p>Training Suspended</p>
+            </div>
+            
             <button class="btn" id="start-btn">Start Training</button><br>
-            <label for="file-input" class="btn" id="upload-label">Upload Custom Target</label>
-            <input type="file" id="file-input" accept="image/*">
+            <div id="upload-section">
+                <label for="file-input" class="btn">Upload Custom Target</label>
+                <input type="file" id="file-input" accept="image/*">
+            </div>
         </div>
+        
         <div id="results">
             <h1>GAME OVER</h1>
             <p id="final-stats" style="font-size: 24px; color: #00ffcc;"></p>
@@ -76,12 +85,8 @@
         document.body.appendChild(renderer.domElement);
 
         scene.add(new THREE.AmbientLight(0xffffff, 0.8));
-        const pointLight = new THREE.PointLight(0x00ffff, 50);
-        pointLight.position.set(5, 5, 5);
-        scene.add(pointLight);
         scene.add(new THREE.GridHelper(200, 50, 0xff00ff, 0x222222));
 
-        // --- GUN MODEL ---
         function createGun() {
             const bodyMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
             const neonMat = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 2 });
@@ -97,19 +102,18 @@
         }
         createGun();
 
-        // --- EXPLOSION SYSTEM ---
         function createExplosion(pos) {
-            for (let i = 0; i < 15; i++) {
-                const p = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), new THREE.MeshBasicMaterial({ color: 0x00ffff }));
+            for (let i = 0; i < 20; i++) {
+                const p = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.15), new THREE.MeshBasicMaterial({ color: 0x00ffff }));
                 p.position.copy(pos);
-                p.userData.velocity = new THREE.Vector3((Math.random()-0.5)*0.2, (Math.random()-0.5)*0.2, (Math.random()-0.5)*0.2);
+                // Increased particle speed
+                p.userData.velocity = new THREE.Vector3((Math.random()-0.5)*0.5, (Math.random()-0.5)*0.5, (Math.random()-0.5)*0.5);
                 p.userData.life = 1.0;
                 scene.add(p);
                 particles.push(p);
             }
         }
 
-        // --- FILE UPLOADER ---
         document.getElementById('file-input').addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (file) {
@@ -121,8 +125,9 @@
         const controls = new PointerLockControls(camera, document.body);
         const startBtn = document.getElementById('start-btn');
         const overlay = document.getElementById('overlay');
-        const pauseText = document.getElementById('pause-text');
-        const menuHeader = document.querySelector('#menu h1:not(#pause-text)');
+        const pauseUI = document.getElementById('pause-ui');
+        const mainHeader = document.getElementById('main-header');
+        const uploadSection = document.getElementById('upload-section');
 
         startBtn.addEventListener('click', () => controls.lock());
 
@@ -138,16 +143,16 @@
         controls.addEventListener('unlock', () => {
             if (timeLeft > 0) {
                 overlay.style.display = 'flex';
-                pauseText.style.display = 'block';
-                menuHeader.style.display = 'none';
+                mainHeader.style.display = 'none';
+                uploadSection.style.display = 'none';
+                pauseUI.style.display = 'block';
                 startBtn.innerText = "Resume Training";
-                document.getElementById('upload-label').style.display = 'none';
             }
         });
 
         function startTimer() {
             const itv = setInterval(() => {
-                if (controls.isLocked) {
+                if (controls.isLocked && timeLeft > 0) {
                     timeLeft--;
                     document.getElementById('timer').innerText = timeLeft;
                 }
@@ -158,7 +163,7 @@
                     overlay.style.display = 'flex';
                     document.getElementById('menu').style.display = 'none';
                     document.getElementById('results').style.display = 'block';
-                    document.getElementById('final-stats').innerText = `Score: ${score} | Acc: ${Math.round((hits/fired)*100)}%`;
+                    document.getElementById('final-stats').innerText = `Score: ${score} | Acc: ${Math.round((hits/(fired||1))*100)}%`;
                 }
             }, 1000);
         }
@@ -188,7 +193,7 @@
                 createTarget();
             }
             document.getElementById('score').innerText = score;
-            document.getElementById('accuracy').innerText = Math.round((hits/fired)*100) || 100;
+            document.getElementById('accuracy').innerText = Math.round((hits/fired)*100);
         });
 
         const keys = { w: false, a: false, s: false, d: false };
@@ -208,7 +213,7 @@
                 targets.forEach(t => t.lookAt(camera.position));
             }
 
-            // Update Particles
+            // Corrected Particle Loop
             for (let i = particles.length - 1; i >= 0; i--) {
                 const p = particles[i];
                 p.position.add(p.userData.velocity);
@@ -225,6 +230,12 @@
         for(let i=0; i<10; i++) createTarget();
         camera.position.y = 1.6;
         animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
     </script>
 </body>
 </html>
